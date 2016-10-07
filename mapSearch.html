@@ -1,0 +1,221 @@
+<!doctype html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no, width=device-width">
+    <title>地点选择</title>
+    <link rel="stylesheet" href="http://cache.amap.com/lbs/static/main1119.css"/>
+    <style type="text/css">
+        #container {
+            height: 50%;
+        }
+
+        #myPageTop {
+            box-sizing: border-box;
+            width: 96%;
+            right: 2%;
+            left: 2%;
+        }
+
+        #myPageTop table,
+        #myPageTop #tipinput {
+            width: 100%;
+        }
+
+        #panel {
+            position: absolute;
+            background-color: white;
+            max-height: 50%;
+            overflow-y: scroll;
+            top: 50%;
+            width: 100%;
+        }
+
+        .amap_lib_placeSearch_page,
+        .poibox .poi-info,
+        .poi-title a {
+            display: none;
+        }
+
+        .poibox {
+            height: 40px;
+        }
+
+        .amap_lib_placeSearch .poibox .poi-title {
+            margin-top: 2px;
+            display: inline-block;
+            font-size: 14px;
+            margin-left: 30px;
+        }
+    </style>
+    <script type="text/javascript"
+            src="http://webapi.amap.com/maps?v=1.3&key=54e484931a6a428c50da305c82bc709a&plugin=AMap.Autocomplete,AMap.PlaceSearch,AMap.CitySearch"></script>
+    <script type="text/javascript" src="http://cache.amap.com/lbs/static/addToolbar.js"></script>
+</head>
+
+<body>
+<div id="container"></div>
+<div id="myPageTop">
+    <table>
+        <tr>
+            <td>
+                <input id="tipinput"/>
+            </td>
+        </tr>
+    </table>
+</div>
+<div id="panel"></div>
+<script src="//cdn.bootcss.com/es6-promise/3.2.2/es6-promise.min.js"></script>
+<script type="text/javascript">
+    (function () {
+        var point, markerPoints = [],
+                map = new AMap.Map('container', {
+                    resizeEnable: true
+                }),
+                auto = new AMap.Autocomplete({
+                    input: 'tipinput'
+                });
+        window.map = map; // 暴露map给addToolbar.js
+
+        function initSearch() {
+            return new AMap.PlaceSearch({ //构造地点查询类
+                pageSize: 8,
+                pageIndex: 0,
+                map: map,
+                panel: "panel"
+            });
+        }
+
+        function addMarker(d) {
+            var lngX = d.location.getLng();
+            var latY = d.location.getLat();
+            markerPoints.push(lngX + ',' + latY);
+        }
+
+        function getMarkers(markerStyle, point) {
+            return markerStyle.join(',') + ':' + point;
+        }
+
+        function getImgUrl(markers, zoom, size) {
+            var parms_arr = [],
+                    url = 'http://restapi.amap.com/v3/staticmap?';
+            zoom = zoom || 18,
+                    size = size || '960*480',
+                    // markers = markers || getMarkers(['mid', '', 'A'], markerPoints.slice(0, 1));
+                    markers = markers || getMarkers(['mid', '', 'A'], point);
+            var parms = {
+                zoom: zoom,
+                size: size,
+                markers: markers,
+                key: '3c3fec782489577f30ef2bdd23acc3d6',
+            };
+            for (var key in parms) {
+                parms_arr.push(key + '=' + parms[key]);
+            }
+            url += parms_arr.join('&');
+            return url;
+        }
+
+        function getTarget(target) {
+            while (target.nodeName != 'LI') {
+                target = target.parentNode;
+            }
+            return target;
+        }
+
+        function setStorage(name, pic) {
+            localStorage.setItem('name', name);
+            localStorage.setItem('pic', pic);
+        }
+
+        function clickItem(e) {
+            var target = getTarget(e.target),
+                    index = target.getElementsByClassName('poibox-icon')[0].innerHTML,
+                    name = target.getElementsByClassName('poi-name')[0].innerHTML;
+            // markerPoints.unshift(markerPoints[index - 1];
+            // markerPoints.splice(index, 1);
+            point = markerPoints[index - 1];
+            setStorage(name, getImgUrl());
+            history.back(-1);
+        }
+
+        function currentCityInfo() {
+            return new Promise(function (resolve, reject) {
+                //实例化城市查询类
+                var citysearch = new AMap.CitySearch();
+                //自动获取用户IP，返回当前城市
+                citysearch.getLocalCity(function (status, result) {
+                    if (status === 'complete' && result.info === 'OK') {
+                        if (result && result.city) {
+                            resolve(result);
+                        }
+                    } else {
+                        reject(new Error(result.infocode));
+                    }
+                });
+            })
+        }
+
+        function chooseLocation(keyword, adcode) {
+            return new Promise(function (resolve, reject) {
+                //接收url中传入的搜索值
+                AMap.service(['AMap.PlaceSearch'], function () {
+                    //关键字查询
+                    var placeSearch = initSearch();
+                    placeSearch.setCity(adcode || '100000');
+                    placeSearch.search(keyword, function (status, result) {
+                        if (status === 'complete' && result.info === 'OK') {
+                            resolve(result);
+                        } else {
+                            reject(new Error(result.info));
+                        }
+                    });
+                });
+            })
+        };
+        currentCityInfo().then(function (data) {
+            return function () {
+                if (location.search.indexOf("&") == -1) return data.city;
+                return decodeURIComponent(location.search.substr(1).split("&")[0].split('=')[1]);
+            }
+
+        }, function (error) {
+            console.log(error);
+        }).then(function (data) {
+            chooseLocation(data()).then(function (data) {
+                var poiArr = data.poiList.pois,
+                        resultCount = poiArr.length;
+                markerPoints = []; // 清空上次搜索的数据
+                for (var i = 0; i < resultCount; i++) {
+                    addMarker(poiArr[i]);
+                }
+                point = markerPoints[0];
+                setStorage(poiArr[0].name, getImgUrl());
+                //注册监听，当选中某条记录时会触发
+                AMap.event.addListener(auto, "select", function (e) {
+                    chooseLocation(e.poi.name, e.poi.adcode).then(function (data) {
+                        var poiArr = data.poiList.pois,
+                                resultCount = poiArr.length;
+                        markerPoints = []; // 清空上次搜索的数据
+                        for (var i = 0; i < resultCount; i++) {
+                            addMarker(poiArr[i]);
+                        }
+                    }); //  选中某条纪录后再次触发搜索,重新绘制地图
+                });
+                return data;
+            }, function (error) {
+                console.log(error);
+            }).then(function () {
+                //  panel列表项切换
+                document.getElementById('panel').addEventListener('click', clickItem, false);
+            }, function (error) {
+                console.log(error);
+            })
+        })
+    })()
+</script>
+</body>
+
+</html>
